@@ -1,0 +1,54 @@
++ DNS=c.root-servers.net
++ TARGET=athena-ini.ini.cmu.edu
++ DIG='dig +norecurse'
++ HOPS=0
++ true
++ HOPS=1
++ echo try 1: USING DNS c.root-servers.net
+++ dig +norecurse @c.root-servers.net athena-ini.ini.cmu.edu
+++ grep ';; flags'
+ $2;}'
+++ awk '{print $2;}'
++ ANSWER=0
++ '[' 0 -eq 0 ']'
++ echo No answer returned, using first server in the AUTHORITY SECTION
+++ dig +norecurse @c.root-servers.net athena-ini.ini.cmu.edu
+++ sed -n '/;; AUTHORITY SECTION:/{n;p}'
++ DNS=A.GTLD-SERVERS.NET.
++ true
++ HOPS=2
++ echo try 2: USING DNS A.GTLD-SERVERS.NET.
+++ dig +norecurse @A.GTLD-SERVERS.NET. athena-ini.ini.cmu.edu
+++ grep ';; flags'
+++ awk -F , '{print $2;}'
+++ awk '{print $2;}'
++ ANSWER=0
++ '[' 0 -eq 0 ']'
++ echo No answer returned, using first server in the AUTHORITY SECTION
+++ dig +norecurse @A.GTLD-SERVERS.NET. athena-ini.ini.cmu.edu
+++ sed -n '/;; AUTHORITY SECTION:/{n;p}'
+++ awk '{print $5;}'
++ DNS=ac-tns-1.net.cmu.edu.
++ true
++ HOPS=3
++ echo try 3: USING DNS ac-tns-1.net.cmu.edu.
+++ dig +norecurse @ac-tns-1.net.cmu.edu. athena-ini.ini.cmu.edu
+++ awk '{print $2;}'
++ ANSWER=0
++ '[' 0 -eq 0 ']'
++ echo No answer returned, using first server in the AUTHORITY SECTION
+++ dig +norecurse @ac-tns-1.net.cmu.edu. athena-ini.ini.cmu.edu
+++ sed -n '/;; AUTHORITY SECTION:/{n;p}'
++ DNS=FS1.ECE.cmu.edu.
++ true
++ HOPS=4
++ echo try 4: USING DNS FS1.ECE.cmu.edu.
+++ dig +norecurse @FS1.ECE.cmu.edu. athena-ini.ini.cmu.edu
+++ grep ';; flags'
+++ awk -F , '{print $2;}'
+++ awk '{print $2;}'
++ ANSWER=2
++ '[' 2 -eq 0 ']'
++ dig +norecurse @FS1.ECE.cmu.edu. athena-ini.ini.cmu.edu
++ sed -n '/ANSWER SECTION:/, +2p'
++ exit 0
