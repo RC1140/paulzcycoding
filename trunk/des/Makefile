@@ -1,5 +1,5 @@
-logic:	logic.cpp algorithm.h logic.h sboxfunction.h
-	g++ -o logic logic.cpp -O3
+logic:	logic.cpp algorithm.h logicpolynomial/logic.h sboxfunction.h
+	g++ -o logic logic.cpp
 
 des:	des.cpp algorithm.h sboxfunction.h logic.h
 	g++ -o des des.cpp
@@ -19,15 +19,12 @@ sr:	sboxres sboxinvmat matmulti
 sboxfunction.h:	sr sboxfun
 	./sboxfun > sboxfunction.h < sr
 	
-.PHONY: clean
-clean:
-	rm -f des sboxgent sboxres sboxmat sboxinvmat matmulti sboxfun sr testlogic sboxfunction.h tovtest vttest logic
-
-testlogic:	logic.h testlogic.cpp
-	g++ -o testlogic testlogic.cpp
-
 tovtest:	tovtest.cpp algorithm.h sboxfunction.h
 	g++ -o tovtest tovtest.cpp
 
 vttest:	vttest.cpp algorithm.h sboxfunction.h
 	g++ -o vttest vttest.cpp
+
+.PHONY: clean
+clean:
+	rm -f des sboxgent sboxres sboxmat sboxinvmat matmulti sboxfun sr sboxfunction.h tovtest vttest logic

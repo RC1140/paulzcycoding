@@ -29,9 +29,7 @@ public:
     std::vector<WORD> keys = generateKeys(key);
     
     WORD block = input;
-//    std::cout << block << std::endl;
     initialPermutation(block);
-    //std::cout << block << std::endl;
 
     WORD l(32), r(32), l2(32), r2(32);
 
@@ -39,8 +37,6 @@ public:
       l[i] = block[i];
       r[i] = block[i + 32];
     }
-
-    //std::cout << l << ' ' << r << std::endl;
 
     for (int i = 0; i < 16; ++i) {
       l2 = r;
@@ -50,7 +46,7 @@ public:
       }
       l = l2;
       r = r2;
-      std::cout << l << ' ' << r << std::endl;
+      std::cout << "Round\t" << (i + 1) << ":\n" << l << '\n' << r << std::endl;
     }
     
     for (int i = 0; i < 32; ++i) {
@@ -90,27 +86,13 @@ public:
     }
 
     re[0] = sbox0(s[0]);
-    std::cout << re[0] << std::endl;
     re[1] = sbox1(s[1]);
-    std::cout << re[1] << std::endl;
     re[2] = sbox2(s[2]);
-    std::cout << re[2] << std::endl;
     re[3] = sbox3(s[3]);
-    std::cout << re[3] << std::endl;
     re[4] = sbox4(s[4]);
-    std::cout << re[4] << std::endl;
     re[5] = sbox5(s[5]);
-    std::cout << re[5] << std::endl;
     re[6] = sbox6(s[6]);
-    std::cout << re[6] << std::endl;
     re[7] = sbox7(s[7]);
-    std::cout << re[7] << std::endl;
-
-    /*
-    for (int i = 0; i < 8; ++i)
-      std::cout << re[i] << ' ';
-    std::cout << std::endl;
-    */
 
     WORD result(32);
 
