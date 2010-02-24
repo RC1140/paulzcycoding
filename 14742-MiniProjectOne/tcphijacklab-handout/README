@@ -1,0 +1,21 @@
+The TCP Reset Lab
+Directions to Students
+
+Your goal is to modify your copy of client.c, server.c, and reset.c 
+so that the reset program performs a TCP Reset attack on the connection
+between the client and server programs.  Please see the lab writeup for
+further information.
+
+
+
+*********
+  Files:
+*********
+
+Makefile	- Makes client, server, and reset 
+README		- This file
+client.c 	- A file you will be modifying and handing in
+server.c	- A file you will be modifying and handing in
+reset.c  	- A file you will be modifying and handing in
+
+
