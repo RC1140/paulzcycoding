@@ -1,0 +1,17 @@
+The SSL MITM Lab
+Directions to Students
+
+Your goal is to modify your copy of sslattack.c so that when your
+program detects a dns request for a target website (e.g. paypal.com)
+it responds with a spoofed response with a webserver of your
+choosing.  Please see the attack writeup for further information.
+
+*********
+  Files:
+*********
+
+Makefile	- Makes sslattack
+README		- This file
+sslattack.c 	- A file you will be modifying and handing in
+
+
