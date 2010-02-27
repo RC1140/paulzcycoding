@@ -92,7 +92,7 @@ int main(int argc, char* argv[]) {
 
 	while (fgets(buffer, BUFFERSIZE, filehd) != NULL) {
 //		rv = send(sock_fd, buffer, strlen(buffer), 0);
-		rv = write(sock_fd, buffer, strlen(buffer));
+		rv = write(sock_fd, buffer, strlen(buffer) + 1);
 		printf("%d\n", rv);
 		if (rv <= 0) {
 			perror("send failed");
