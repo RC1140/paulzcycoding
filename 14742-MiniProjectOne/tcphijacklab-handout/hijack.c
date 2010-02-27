@@ -29,7 +29,6 @@
 #include <net/ethernet.h>
 #include <netinet/ether.h> 
 
-
 #define BUFSIZE         1600
 #define MESSAGE_FORMAT  "O kind server, %s needs your blessings."
 
@@ -39,7 +38,7 @@
 
 pcap_t *set_cap_dev(char *, char *); /* set capdev up to capture dns    */
 int analyze_packet(const u_char *, const char *andrew_id); /* parse a packet, build an answer */
-void print_tcp_packet(const u_char *packet);
+//void print_tcp_packet(const u_char *packet);
 
 void showErrorMsg(char *msg)
 {
@@ -51,23 +50,23 @@ int usage() {
 	printf("USAGE:\n");
 	printf("\tsudo ./hijack <client ip> <client port> \
 				<server ip> <server port> <andrew_id>\n");
-	return -1;
+	exit(EXIT_FAILURE);
 }
 
 int main(int argc, char **argv) {
-	char *device="lo";		// device name in string
+//	char *device="lo";		// device name in string
 	char filter[1024];              // Capture filter string
-//	char errbuf[PCAP_ERRBUF_SIZE];  // Error Buffer
+	char errbuf[PCAP_ERRBUF_SIZE];  // Error Buffer
 	pcap_t* capdev;                 // Packet Capture Handler
 	const u_char *packet = NULL;	
 	struct pcap_pkthdr pcap_hdr;    // Pcap packet header
 
 	/* loopback interface has been specified.*/
-//	device = pcap_lookupdev(errbuf);// get the name of a network device
-//	if (device == NULL) {
-//		printf("pcap_lookupdev: %s\n", errbuf);
-//	exit(1);
-//	}
+	device = pcap_lookupdev(errbuf);// get the name of a network device
+	if (device == NULL) {
+		showErrorMsg(errbuf);
+		exit(1);
+	}
 
 	if (argc != 6) usage();		// show usage
 
