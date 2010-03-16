@@ -3,7 +3,7 @@
 
 int main(int argc, char* argv[]) {
 	const int MAXN = 15000;
-	const int MAXX = 65535;
+	const int MAXX = 32001;
 
 	int sum[MAXN + 1];
 	int tree[MAXX + 1];
