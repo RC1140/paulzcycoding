@@ -1,15 +1,21 @@
 package edu.cmu.chengyez.socket;
 
+import java.io.FileDescriptor;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.net.Socket;
 
 import android.util.Log;
 
+import com.google.ase.Exec;
+
 public class ConnectionThread implements Runnable {
 	private Socket clientSocket = null;
-	private static ProcessBuilder processBuilder = null;
-	private Process process;
 	private static final String TAG = ConnectionThread.class.getName();
+	private FileInputStream is;
+	private FileOutputStream os;
+	private FileDescriptor shellFd;
 
 	public ConnectionThread(Socket clientSocket) {
 		this.clientSocket = clientSocket;
@@ -17,21 +23,22 @@ public class ConnectionThread implements Runnable {
 
 	@Override
 	public void run() {
-		processBuilder = getProcessBuilder();
+		int[] pids=new int[1];
 		try {
-			process = processBuilder.start();
-		} catch (IOException e) {
-			Log.e(TAG, e.getMessage());
+			shellFd = Exec.createSubprocess("/system/bin/sh", "-", null, pids);
+		} catch (Exception e) {
+			Log.e(TAG, "Cannot start local shell", e);
 			return;
 		}
+		
+		is = new FileInputStream(shellFd);
+		os = new FileOutputStream(shellFd);
 
 		SyncThread sync1 = null;
 		SyncThread sync2 = null;
 		try {
-			sync1 = new SyncThread(process.getOutputStream(), clientSocket
-					.getInputStream());
-			sync2 = new SyncThread(clientSocket.getOutputStream(), process
-					.getInputStream());
+			sync1 = new SyncThread(os, clientSocket.getInputStream());
+			sync2 = new SyncThread(clientSocket.getOutputStream(), is);
 		} catch (IOException e) {
 			Log.e(TAG, e.getMessage());
 			return;
@@ -42,17 +49,10 @@ public class ConnectionThread implements Runnable {
 		sync2.setName("Sync2");
 		sync1.start();
 		sync2.start();
-
-		while (true) {
-			if (sync1.isStopped()) {
-				sync2.sendStopSignal();
-				break;
-			}
-			if (sync2.isStopped()) {
-				sync1.sendStopSignal();
-				break;
-			}
-		}
+		
+		Exec.waitFor(pids[0]);
+		sync1.sendStopSignal();
+		sync2.sendStopSignal();
 
 		try {
 			if (!clientSocket.isClosed()) {
@@ -61,21 +61,7 @@ public class ConnectionThread implements Runnable {
 		} catch (IOException e) {
 			Log.e(TAG, e.getMessage());
 		}
-		
-		try {
-			process.exitValue();
-		} catch (IllegalThreadStateException e) {
-			process.destroy();
-		}
+
 		Log.d(TAG, "Connection Closed");
 	}
-
-	private ProcessBuilder getProcessBuilder() {
-		if (processBuilder == null) {
-			processBuilder = new ProcessBuilder("/system/bin/sh", "-");
-			processBuilder.redirectErrorStream(true);
-		}
-		return processBuilder;
-	}
-
 }
