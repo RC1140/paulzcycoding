@@ -7,54 +7,57 @@ import java.io.OutputStream;
 import android.util.Log;
 
 public class SyncThread extends Thread {
-	private InputStream input;
-	private OutputStream output;
-	private static final String TAG = SyncThread.class.getName();
-	private boolean stopped = false;
-	private boolean stopSignal = false;
+    private InputStream input;
 
-	public static final int MAXBUFSIZE = 1024;
+    private OutputStream output;
 
-	public void sendStopSignal() {
-		synchronized (this) {
-			stopSignal = true;
-		}
-	}
+    private static final String TAG = SyncThread.class.getName();
 
-	public boolean isStopped() {
-		return stopped;
-	}
+    private boolean stopped = false;
 
-	public SyncThread(OutputStream outputStream, InputStream inputStream) {
-		input = inputStream;
-		output = outputStream;
-	}
+    private boolean stopSignal = false;
 
-	@Override
-	public void run() {
-		stopped = false;
+    public static final int MAXBUFSIZE = 1024;
 
-		byte[] buf = new byte[MAXBUFSIZE];
-		int readBytes = 0;
-		try {
-			while (true) {
-				if (stopSignal) {
-					break;
-				}
-				if (input.available() > 0) {
-					readBytes = input.read(buf, 0, MAXBUFSIZE);
-					Log.d(TAG, this.getName() + ": Read " + readBytes
-							+ " bytes from input");
-					output.write(buf, 0, readBytes);
-					output.flush();
-				}
-			}
-		} catch (IOException e) {
-			Log.d(TAG, this.getName() + ": Error");
-		}
+    public void sendStopSignal() {
+        synchronized (this) {
+            stopSignal = true;
+        }
+    }
 
-		stopped = true;
-		Log.d(TAG, this.getName() + ": Stopped");
-	}
+    public boolean isStopped() {
+        return stopped;
+    }
+
+    public SyncThread(OutputStream outputStream, InputStream inputStream) {
+        input = inputStream;
+        output = outputStream;
+    }
+
+    @Override
+    public void run() {
+        stopped = false;
+
+        byte[] buf = new byte[MAXBUFSIZE];
+        int readBytes = 0;
+        try {
+            while (true) {
+                if (stopSignal) {
+                    break;
+                }
+                if (input.available() > 0) {
+                    readBytes = input.read(buf, 0, MAXBUFSIZE);
+                    Log.d(TAG, this.getName() + ": Read " + readBytes + " bytes from input");
+                    output.write(buf, 0, readBytes);
+                    output.flush();
+                }
+            }
+        } catch (IOException e) {
+            Log.d(TAG, this.getName() + ": Error");
+        }
+
+        stopped = true;
+        Log.d(TAG, this.getName() + ": Stopped");
+    }
 
 }
